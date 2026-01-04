@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Earth Interior Simulation</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #1a1a1a;
+            --accent-color: #3b82f6;
+            --ui-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #info {
+            position: absolute;
+            top: 32px;
+            left: 32px;
+            color: var(--text-color);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #info h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            max-width: 300px;
+            line-height: 1.2;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* Enhanced Sleek UI Overrides for dat.GUI */
+        .dg.main {
+            margin-right: 24px !important;
+            margin-top: 24px !important;
+            box-shadow: var(--ui-shadow) !important;
+            border-radius: 8px !important;
+            overflow: hidden !important;
+            border: 1px solid rgba(0, 0, 0, 0.05) !important;
+        }
+
+        .dg.main .close-button {
+            background-color: #f8f8f8 !important;
+            color: #666 !important;
+            border-top: 1px solid #eee !important;
+            font-size: 11px !important;
+            text-transform: uppercase !important;
+            letter-spacing: 1px !important;
+        }
+
+        .dg li:not(.folder) {
+            background: rgba(255, 255, 255, 1.0) !important;
+            border-bottom: 1px solid #f1f1f1 !important;
+            color: #444 !important;
+            text-shadow: none !important;
+            height: 32px !important;
+            line-height: 32px !important;
+        }
+
+        .dg li.title {
+            background: #fdfdfd !important;
+            color: #111 !important;
+            font-weight: 700 !important;
+            text-shadow: none !important;
+            border-bottom: 1px solid #e5e7eb !important;
+            padding-left: 10px !important;
+        }
+
+        .dg .cr.number input[type=text] {
+            background: #f9fafb !important;
+            color: var(--accent-color) !important;
+            border: 1px solid #e5e7eb !important;
+            border-radius: 4px !important;
+            margin-top: 4px !important;
+        }
+
+        .dg .c .slider {
+            background: #f3f4f6 !important;
+            margin-top: 10px !important;
+            height: 12px !important;
+            border-radius: 6px !important;
+        }
+
+        .dg .c .slider-fg {
+            background: var(--accent-color) !important;
+            border-radius: 6px !important;
+        }
+
+        .dg .cr.boolean {
+            border-left: 4px solid var(--accent-color) !important;
+        }
+
+        .dg .property-name {
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            color: #6b7280 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="info">
+        <h1>Layers of the Earth 3D Simulation</h1>
+    </div>
+
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        /**
+         * 3D Developer Implementation
+         * Interface: Sleek High-Contrast Minimal
+         * Default Zoom: 37%
+         */
+
+        const EarthData = {
+            innerCore: { radius: 1220, color: 0xffcc00, opacity: 1.0, name: "Inner Core" },
+            outerCore: { radius: 3480, color: 0xff7700, opacity: 0.6, name: "Outer Core" },
+            mantle: { radius: 6350, color: 0xcc3300, opacity: 0.4, name: "Mantle" },
+            crust: { radius: 6371, color: 0x22c55e, opacity: 0.3, name: "Crust" }
+        };
+
+        const ZOOM_MIN = 4000;
+        const ZOOM_MAX = 45000;
+
+        const settings = {
+            innerCore: true,
+            outerCore: true,
+            mantle: true,
+            crust: true,
+            atmosphere: true,
+            rotationSpeed: 0.0,
+            cutaway: true, 
+            opacityMultiplier: 3.0,
+            zoomPercent: 37 
+        };
+
+        let scene, camera, renderer, controls, layers = {}, pivot, atmosphere, gui, zoomController;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+
+            camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 100, 150000);
+            
+            const initialDist = ZOOM_MIN + (settings.zoomPercent / 100) * (ZOOM_MAX - ZOOM_MIN);
+            camera.position.set(initialDist * 0.7, initialDist * 0.5, initialDist);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.04;
+            controls.minDistance = ZOOM_MIN;
+            controls.maxDistance = ZOOM_MAX;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+            scene.add(ambientLight);
+
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.5);
+            scene.add(hemiLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            sunLight.position.set(15000, 15000, 10000);
+            scene.add(sunLight);
+
+            pivot = new THREE.Group();
+            scene.add(pivot);
+
+            createEarth();
+            createAtmosphere();
+
+            // Custom Sleek UI
+            gui = new dat.GUI({ width: 300 });
+            
+            const f1 = gui.addFolder('STRUCTURE');
+            f1.add(settings, 'crust').name('Crust').onChange(updateVisibility);
+            f1.add(settings, 'mantle').name('Mantle').onChange(updateVisibility);
+            f1.add(settings, 'outerCore').name('Outer Core').onChange(updateVisibility);
+            f1.add(settings, 'innerCore').name('Inner Core').onChange(updateVisibility);
+            f1.open();
+
+            const f2 = gui.addFolder('VISUALS');
+            f2.add(settings, 'atmosphere').name('Atmosphere').onChange(v => atmosphere.visible = v);
+            f2.add(settings, 'cutaway').name('Cutaway View').onChange(toggleCutaway);
+            f2.add(settings, 'opacityMultiplier', 0.5, 5.0).name('Visibility Boost').onChange(updateVisibility);
+            f2.open();
+
+            const f3 = gui.addFolder('CONTROLS');
+            f3.add(settings, 'rotationSpeed', 0, 0.02).name('Spin Velocity');
+            zoomController = f3.add(settings, 'zoomPercent', 0, 100).name('Zoom (%)').step(0.1).onChange(v => {
+                const actualDist = ZOOM_MIN + (v / 100) * (ZOOM_MAX - ZOOM_MIN);
+                const direction = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
+                camera.position.copy(controls.target).addScaledVector(direction, actualDist);
+            });
+            f3.open();
+
+            window.addEventListener('resize', onWindowResize, false);
+            
+            updateVisibility();
+            toggleCutaway(); 
+            
+            animate();
+        }
+
+        function createEarth() {
+            const createLayer = (data) => {
+                const geometry = new THREE.SphereGeometry(data.radius, 128, 128);
+                const material = new THREE.MeshStandardMaterial({
+                    color: data.color,
+                    transparent: true,
+                    opacity: data.opacity,
+                    side: THREE.DoubleSide,
+                    roughness: 0.4,
+                    metalness: 0.1
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                pivot.add(mesh);
+                return mesh;
+            };
+
+            layers.innerCore = createLayer(EarthData.innerCore);
+            layers.outerCore = createLayer(EarthData.outerCore);
+            layers.mantle = createLayer(EarthData.mantle);
+            layers.crust = createLayer(EarthData.crust);
+        }
+
+        function createAtmosphere() {
+            const geometry = new THREE.SphereGeometry(EarthData.crust.radius * 1.05, 128, 128);
+            const material = new THREE.ShaderMaterial({
+                side: THREE.BackSide,
+                transparent: true,
+                uniforms: {
+                    glowColor: { value: new THREE.Color(0xbfdbfe) },
+                    viewVector: { value: camera.position }
+                },
+                vertexShader: `
+                    uniform vec3 viewVector;
+                    varying float intensity;
+                    void main() {
+                        vec3 vNormal = normalize( normalMatrix * normal );
+                        vec3 vNormel = normalize( normalMatrix * viewVector );
+                        intensity = pow( 0.65 - dot(vNormal, vNormel), 4.5 );
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 glowColor;
+                    varying float intensity;
+                    void main() {
+                        vec3 glow = glowColor * intensity;
+                        gl_FragColor = vec4( glow, intensity );
+                    }
+                `
+            });
+
+            atmosphere = new THREE.Mesh(geometry, material);
+            scene.add(atmosphere);
+        }
+
+        function updateVisibility() {
+            Object.keys(layers).forEach(key => {
+                layers[key].visible = settings[key];
+                if (key !== 'innerCore') {
+                    layers[key].material.opacity = Math.min(EarthData[key].opacity * settings.opacityMultiplier, 0.95);
+                }
+            });
+        }
+
+        function toggleCutaway() {
+            Object.keys(layers).forEach(key => {
+                const mesh = layers[key];
+                mesh.geometry.dispose();
+                if (settings.cutaway) {
+                    mesh.geometry = new THREE.SphereGeometry(
+                        EarthData[key].radius, 128, 128, 
+                        0, Math.PI * 2, 0, Math.PI * 0.5
+                    );
+                    mesh.rotation.x = Math.PI / 2;
+                } else {
+                    mesh.geometry = new THREE.SphereGeometry(EarthData[key].radius, 128, 128);
+                    mesh.rotation.x = 0;
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            pivot.rotation.y += settings.rotationSpeed;
+            
+            if (atmosphere) {
+                atmosphere.material.uniforms.viewVector.value.copy(camera.position);
+            }
+
+            const currentDist = camera.position.distanceTo(controls.target);
+            const currentPercent = ((currentDist - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN)) * 100;
+            settings.zoomPercent = Math.max(0, Math.min(100, currentPercent));
+            
+            if(zoomController) zoomController.updateDisplay();
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
